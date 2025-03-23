@@ -217,13 +217,13 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model_id",
         type=str,
-        default="/data4/ywj/fenbianlvdaima/823newxiangfa/SD",
+        default="sd-legacy/stable-diffusion-v1-5",
         help="Model address"
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="/data4/ywj/fenbianlvdaima/823newxiangfa/test/output_fenbu_untargeted1_zheng2",
+        default="/output_ra_attack",
         help="Directory to store images"
     )
     parser.add_argument(
