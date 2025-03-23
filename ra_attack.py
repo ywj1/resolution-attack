@@ -200,7 +200,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="/output_ra_attack",
+        default="output_ra_attack",
         help="Directory to store images"
     )
     parser.add_argument(
