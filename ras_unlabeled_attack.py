@@ -275,7 +275,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model_id",
         type=str,
-        default="sd-legacy/stable-diffusion-v1-5",
+        default="runwayml/stable-diffusion-v1-5",
         help="Model address"
     )
     parser.add_argument(
@@ -287,7 +287,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model_control_softedge_path",
         type=str,
-        default="/control_mdel/control_softedge",
+        default="lllyasviel/control_v11p_sd15_softedge",
         help="ControlNet model address"
     )
     parser.add_argument(
