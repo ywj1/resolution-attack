@@ -1,0 +1,356 @@
+import os
+import time
+import argparse
+from typing import Optional, Union, Tuple
+
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image
+
+import torchvision.transforms as tvt
+from torchvision.transforms import GaussianBlur
+import torchvision.transforms as transforms
+
+from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
+from diffusers import (
+    StableDiffusionPipeline,
+    ControlNetModel,
+    StableDiffusionControlNetPipeline,
+    DDIMScheduler,
+    DDIMInverseScheduler,
+)
+from diffusers.utils import load_image
+from transformers import DPTForDepthEstimation, DPTFeatureExtractor
+from controlnet_aux import PidiNetDetector
+
+# Set device and use image resolution from args later
+device = torch.device("cuda:0")
+
+
+# Define Gaussian blur class
+class GaussianBlur2F:
+    def __init__(self, kernel_size: int = 3, sigma: float = 21.0):
+        self.GB = GaussianBlur(kernel_size, sigma)
+
+    def FHigh(self, noise: torch.Tensor) -> torch.Tensor:
+        return noise - self.GB(noise)
+
+    def FLow(self, noise: torch.Tensor) -> torch.Tensor:
+        return self.GB(noise)
+
+
+# Function to load an image and resize it to target size if provided
+def load_image1(imgname: str, target_size: Optional[Union[int, Tuple[int, int]]] = None) -> torch.Tensor:
+    pil_img = Image.open(imgname).convert('RGB')
+    if target_size is not None:
+        if isinstance(target_size, int):
+            target_size = (target_size, target_size)
+        pil_img = pil_img.resize(target_size, Image.Resampling.LANCZOS)
+    return tvt.ToTensor()(pil_img)[None, ...]  # add batch dimension
+
+
+# Convert an image tensor to latent representation using the VAE
+def img_to_latents(x: torch.Tensor, vae) -> torch.Tensor:
+    x = 2. * x - 1.
+    posterior = vae.encode(x).latent_dist
+    latents = posterior.mean * 0.18215
+    return latents
+
+
+# Visualize latent channels
+def visualize_latents(latents: torch.Tensor):
+    latents_np = latents.detach().cpu().numpy()
+    num_channels = latents_np.shape[1]
+    fig, axes = plt.subplots(1, num_channels, figsize=(20, 4))
+    for i in range(num_channels):
+        axes[i].imshow(latents_np[0, i], cmap='gray')
+        axes[i].axis('off')
+        axes[i].set_title(f'Channel {i}')
+    plt.show()
+
+
+# DDIM inversion function (now accepts model_id and image resolution)
+@torch.no_grad()
+def ddim_inversion(imgname: str, num_steps: int = 50, prompt: str = "", verify: Optional[bool] = False,
+                   model_id: str = "", img_resolution: int = 512) -> torch.Tensor:
+    dtype = torch.float16
+    inverse_scheduler = DDIMInverseScheduler.from_pretrained(model_id, subfolder='scheduler')
+    pipe_local = StableDiffusionPipeline.from_pretrained(
+        model_id,
+        scheduler=inverse_scheduler,
+        safety_checker=None,
+        torch_dtype=dtype
+    )
+    pipe_local.to(device)
+    vae = pipe_local.vae
+
+    input_img = load_image1(imgname, target_size=(img_resolution, img_resolution)).to(device=device, dtype=dtype)
+    latents = img_to_latents(input_img, vae)
+
+    inv_latents, _ = pipe_local(
+        prompt=prompt,
+        negative_prompt="",
+        guidance_scale=1.0,
+        width=input_img.shape[-1],
+        height=input_img.shape[-2],
+        output_type='latent',
+        return_dict=False,
+        num_inference_steps=num_steps,
+        latents=latents
+    )
+
+    if verify:
+        pipe_local.scheduler = DDIMScheduler.from_pretrained(model_id, subfolder='scheduler')
+        image = pipe_local(
+            prompt="",
+            negative_prompt="",
+            guidance_scale=1.0,
+            num_inference_steps=num_steps,
+            latents=inv_latents
+        )
+        fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(tvt.ToPILImage()(input_img[0]))
+        ax[1].imshow(image.images[0])
+        plt.show()
+    return inv_latents
+
+
+def main(args):
+    # Use the provided image resolution
+    img_resolution = args.img_resolution
+
+    # Load the annotators model for generating softedge using Hugging Face model address
+    processor = PidiNetDetector.from_pretrained(args.annotators_model_path)
+
+    # Load depth estimator and feature extractor
+    depth_estimator = DPTForDepthEstimation.from_pretrained(args.model_depth_path).to(device)
+    feature_extractor = DPTFeatureExtractor.from_pretrained(args.model_depth_path)
+
+    # Load ControlNet models
+    controlnet_softedge = ControlNetModel.from_pretrained(
+        args.model_control_softedge_path,
+        torch_dtype=torch.float16
+    ).to(device)
+    controlnet_depth = ControlNetModel.from_pretrained(
+        args.model_control_depth_path,
+        torch_dtype=torch.float16
+    ).to(device)
+
+    # Initialize StableDiffusionControlNetPipelines
+    pipe = StableDiffusionControlNetPipeline.from_pretrained(
+        args.model_id,
+        controlnet=controlnet_softedge,
+        torch_dtype=torch.float16,
+        variant="fp16"
+    ).to(device)
+    pipe1 = StableDiffusionControlNetPipeline.from_pretrained(
+        args.model_id,
+        controlnet=controlnet_depth,
+        torch_dtype=torch.float16,
+        variant="fp16"
+    ).to(device)
+
+    negative_prompt = "Sticking tongue out, blurry, low resolution, unrealistic, distorted"
+
+    # Create output directory if it doesn't exist
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    # Load source image and generate softedge control image using processor
+    input_image = Image.open(args.input_image_path).convert("RGB")
+    control_image = processor(input_image, safe=True)
+    control_image = control_image.resize((img_resolution, img_resolution), Image.Resampling.LANCZOS).convert("RGB")
+    transform = transforms.Compose([transforms.ToTensor()])
+    control_image_tensor = transform(control_image).unsqueeze(0).to(device).half()
+
+    # Generate depth image
+    image_depth = Image.open(args.input_image_path)
+    inputs = feature_extractor(images=image_depth, return_tensors="pt").to(device)
+    with torch.no_grad():
+        outputs = depth_estimator(**inputs)
+        predicted_depth = outputs.predicted_depth
+    depth_map = predicted_depth.squeeze().cpu().numpy()
+    depth_map_normalized = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min())
+    depth_map_scaled = (depth_map_normalized * 255).astype(np.uint8)
+    depth_image = Image.fromarray(depth_map_scaled)
+    depth_image = depth_image.resize((img_resolution, img_resolution), Image.Resampling.LANCZOS).convert("RGB")
+    depth_image_tensor = transform(depth_image).unsqueeze(0).to(device).half()
+
+    # Loop over each high-resolution prompt in the prompt list
+    for j, prompt1 in enumerate(args.prompt_list):
+        latents = ddim_inversion(
+            args.input_image_path,
+            num_steps=200,
+            prompt="",
+            verify=False,
+            model_id=args.model_id,
+            img_resolution=img_resolution
+        )
+
+        # Encode prompts for softedge and depth generation
+        prompt_embeds_fact1, _ = pipe.encode_prompt(
+            prompt1,
+            device=device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=True
+        )
+        prompt_embeds_fact2, _ = pipe.encode_prompt(
+            args.prompt2,
+            device=device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=True
+        )
+
+        # Encode negative prompt
+        neg_prompt_embeds_fact, _ = pipe.encode_prompt(
+            negative_prompt,
+            device=device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=True
+        )
+
+        # Combine positive and negative prompt embeddings for CFG
+        prompt_embeds_fact1 = torch.cat([neg_prompt_embeds_fact, prompt_embeds_fact1])
+        prompt_embeds_fact2 = torch.cat([neg_prompt_embeds_fact, prompt_embeds_fact2])
+
+        # Retrieve timesteps for the scheduler
+        timesteps, _ = retrieve_timesteps(pipe.scheduler, 300, device, None)
+
+        with torch.no_grad():
+            for t in timesteps:
+                # Softedge branch
+                latent_model_input = torch.cat([latents] * 2)
+                latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+                control_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+                down_block_res_samples, mid_block_res_sample = pipe.controlnet(
+                    control_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds_fact2,  # Using low-res prompt embeddings
+                    controlnet_cond=control_image_tensor,         # Softedge image as condition
+                    conditioning_scale=1.0,
+                    return_dict=False
+                )
+
+                # Depth branch
+                latent_model_input1 = torch.cat([latents] * 2)
+                latent_model_input1 = pipe1.scheduler.scale_model_input(latent_model_input1, t)
+                control_model_input1 = pipe1.scheduler.scale_model_input(latent_model_input1, t)
+                down_block_res_samples1, mid_block_res_sample1 = pipe1.controlnet(
+                    control_model_input1,
+                    t,
+                    encoder_hidden_states=prompt_embeds_fact1,  # Using high-res prompt embeddings
+                    controlnet_cond=depth_image_tensor,           # Depth image as condition
+                    conditioning_scale=0.5,
+                    return_dict=False
+                )
+
+                # Generate noise predictions from the depth branch
+                noise_pred = pipe1.unet(
+                    latent_model_input1,
+                    t,
+                    encoder_hidden_states=prompt_embeds_fact1,
+                    down_block_additional_residuals=down_block_res_samples1,
+                    mid_block_additional_residual=mid_block_res_sample1,
+                    return_dict=False,
+                )[0]
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + 9.0 * (noise_pred_text - noise_pred_uncond)
+                noise_pred_fact1 = GaussianBlur2F().FHigh(noise_pred)
+
+                # Generate noise predictions from the softedge branch
+                noise_pred = pipe.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds_fact2,
+                    down_block_additional_residuals=down_block_res_samples,
+                    mid_block_additional_residual=mid_block_res_sample,
+                    return_dict=False,
+                )[0]
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred_fact2 = noise_pred_uncond + 7.0 * (noise_pred_text - noise_pred_uncond)
+                noise_pred_fact2 = GaussianBlur2F().FLow(noise_pred_fact2)
+
+                noise_pred_final = 1.0 * noise_pred_fact1 + 1.0 * noise_pred_fact2
+
+                latents = pipe.scheduler.step(noise_pred_final, t, latents, return_dict=False)[0]
+
+            # Decode final latent representation to image
+            image = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False, generator=None)[0]
+            do_denormalize = [True] * image.shape[0]
+            image = pipe.image_processor.postprocess(image, output_type='pil', do_denormalize=do_denormalize)[0]
+
+        # Save the generated image
+        output_path = os.path.join(args.output_dir, f"output_prompt_{j:02d}.jpg")
+        image.save(output_path)
+        print(f"Image for prompt {j} generated and saved at {output_path}.")
+        torch.cuda.empty_cache()
+
+    print("Processing complete.")
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Stable Diffusion ControlNet with Depth & Softedge Generation Script (ras-label)")
+    parser.add_argument(
+        "--prompt_list",
+        type=str,
+        nargs='+',
+        default=["A photo of a lion", "A photo of a wolf"],
+        help="High resolution prompt list"
+    )
+    parser.add_argument(
+        "--prompt2",
+        type=str,
+        default="A photo of a dog",
+        help="Low resolution prompt"
+    )
+    parser.add_argument(
+        "--input_image_path",
+        type=str,
+        default="input_image/1.jpg",
+        help="Source image path"
+    )
+    parser.add_argument(
+        "--model_id",
+        type=str,
+        default="runwayml/stable-diffusion-v1-5",
+        help="Model address"
+    )
+    parser.add_argument(
+        "--annotators_model_path",
+        type=str,
+        default="Annotators",
+        help="Annotators model address (for generating softedge)"
+    )
+    parser.add_argument(
+        "--model_depth_path",
+        type=str,
+        default="/data4/ywj/fenbianlvdaima/823newxiangfa/Annotators/depth_image",
+        help="Depth model address"
+    )
+    parser.add_argument(
+        "--model_control_softedge_path",
+        type=str,
+        default="lllyasviel/control_v11p_sd15_softedge",
+        help="ControlNet softedge model address"
+    )
+    parser.add_argument(
+        "--model_control_depth_path",
+        type=str,
+        default="/data4/ywj/fenbianlvdaima/823newxiangfa/control_mdel/control_depth",
+        help="ControlNet depth model address"
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="output_ras_labeled_attack",
+        help="Directory to store generated images"
+    )
+    parser.add_argument(
+        "--img_resolution",
+        type=int,
+        default=512,
+        help="Generated image resolution (both width and height)"
+    )
+    args = parser.parse_args()
+    main(args)
