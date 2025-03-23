@@ -325,7 +325,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model_depth_path",
         type=str,
-        default="/data4/ywj/fenbianlvdaima/823newxiangfa/Annotators/depth_image",
+        default="Intel/dpt-hybrid-midas",
         help="generating depth maps"
     )
     parser.add_argument(
