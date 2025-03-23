@@ -102,4 +102,59 @@ The experiments are divided into **labeled** and **unlabeled** attacks.
 
 ---
 
-### Results
+## Quantitative Results
+
+**The quantitative results of the Resolution Attack.**  
+![RA Quantitative Results](/Figures/RA_quantitative_results.png)
+*This figure shows the results of the RA attack on traditional CNN classifiers.*
+
+**The quantitative results of the Resolution Attack with Source image.**  
+![RAS Quantitative Results](/Figures/RAS_quantitative_results.png)  
+*This figure displays the results of the RAS attack on traditional CNN classifiers.*
+
+To assess the effectiveness of attacks across different model architectures, experiments were conducted on seven models from three different categories (ViT, Feature Pyramid, VLMs).
+
+**Additional quantitative results of the Resolution Attack.**  
+![More RA Quantitative Results](/Figures/more_RA_quantitative_results.png)  
+*These results demonstrate the performance of the RA attack on classifiers based on different frameworks.*
+
+**Additional quantitative results of the Resolution Attack with Source image.**  
+![More RAS Quantitative Results](/Figures/more_RAS_quantitative_results.png)  
+*These results show the performance of the RAS attack on classifiers from various frameworks.*
+
+**Conclusion:**  
+Our proposed resolution attack method achieves high attack success rates against existing classifiers, revealing the vulnerability of current classifiers to resolution changes.
+
+---
+
+## Ethics Statement
+
+Our work aims to explore vulnerabilities in machine learning classifiers through a novel paradigm of resolution attacks. We hope that all related processes comply with local laws and are used responsibly. Developers bear no responsibility for potential misuse by users.
+
+---
+
+## Citation
+
+If you use this code in your research, please kindly cite this paper:
+
+```bibtex
+@inproceedings{yuresolution,
+  title={Resolution Attack: Exploiting Image Compression to Deceive Deep Neural Networks},
+  author={Yu, Wangjia and Fu, Xiaomeng and Li, Qiao and Han, Jizhong and Zhang, Xiaodan},
+  booktitle={The Thirteenth International Conference on Learning Representations}
+}
+```
+
+---
+
+## Acknowledgements
+
+This repository benefits from [DDIM_Inversion](https://github.com/shaibagon/diffusers_ddim_inversion) and [ControlNet](https://github.com/lllyasviel/ControlNet).
+
+Thanks for their wonderful works!
+
+---
+
+## Contact ✉️
+
+If you have any questions about this project, please feel free to contact [yuwangjia@iie.ac.cn](mailto:yuwangjia@iie.ac.cn).
