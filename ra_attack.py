@@ -2,20 +2,16 @@ import os
 import time
 import argparse
 from typing import Union, Tuple, Optional
-
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from torchvision import transforms as tvt
 from torchvision.transforms import InterpolationMode, GaussianBlur
-
 from diffusers import StableDiffusionPipeline, DDIMInverseScheduler, DDIMScheduler, AutoencoderKL
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
 
-
 device = torch.device("cuda:0")
-
 
 class GaussianBlur2F:
     def __init__(self, kernel_size: int = 3, sigma: float = 21.0):
@@ -27,7 +23,6 @@ class GaussianBlur2F:
     def FLow(self, noise: torch.Tensor) -> torch.Tensor:
         return self.GB(noise)
 
-
 def load_image(imgname: str, target_size: Optional[Union[int, Tuple[int, int]]] = None) -> torch.Tensor:
     """Load an image and resize it to the target size if provided."""
     pil_img = Image.open(imgname).convert('RGB')
@@ -37,14 +32,12 @@ def load_image(imgname: str, target_size: Optional[Union[int, Tuple[int, int]]] 
         pil_img = pil_img.resize(target_size, Image.Resampling.LANCZOS)
     return tvt.ToTensor()(pil_img)[None, ...]  # add batch dimension
 
-
 def img_to_latents(x: torch.Tensor, vae: AutoencoderKL) -> torch.Tensor:
     """Convert an image tensor to latent representation using the VAE."""
     x = 2. * x - 1.
     posterior = vae.encode(x).latent_dist
     latents = posterior.mean * 0.18215
     return latents
-
 
 def visualize_latents(latents: torch.Tensor):
     """Visualize each channel of the latent representation."""
@@ -56,7 +49,6 @@ def visualize_latents(latents: torch.Tensor):
         axes[i].axis('off')
         axes[i].set_title(f'Channel {i}')
     plt.show()
-
 
 @torch.no_grad()
 def ddim_inversion(imgname: str, num_steps: int = 50, prompt: str = "", verify: Optional[bool] = False, model_id: str = "") -> torch.Tensor:
@@ -88,7 +80,6 @@ def ddim_inversion(imgname: str, num_steps: int = 50, prompt: str = "", verify: 
         plt.show()
     return inv_latents
 
-
 def main(args):
     # Initialize the Stable Diffusion pipeline with the specified model
     pipe = StableDiffusionPipeline.from_pretrained(args.model_id, torch_dtype=torch.float16)
@@ -113,12 +104,10 @@ def main(args):
             prompt_embeds_fact2, neg_prompt_embeds_fact2 = pipe.encode_prompt(
                 args.prompt2, device=device, num_images_per_prompt=1, do_classifier_free_guidance=True
             )
-
             # Encode negative prompt
             neg_prompt_embeds_fact, _ = pipe.encode_prompt(
                 negative_prompt, device=device, num_images_per_prompt=1, do_classifier_free_guidance=True
             )
-
             # Combine positive and negative prompt embeddings for CFG
             prompt_embeds_fact1 = torch.cat([neg_prompt_embeds_fact, prompt_embeds_fact1])
             prompt_embeds_fact2 = torch.cat([neg_prompt_embeds_fact, prompt_embeds_fact2])
@@ -127,7 +116,6 @@ def main(args):
                 1, num_channels_latents, args.img_resolution, args.img_resolution,
                 prompt_embeds_fact1.dtype, device, None, None
             )
-
             # Retrieve timesteps for the scheduler
             timesteps, _ = retrieve_timesteps(pipe.scheduler, 300, device, None)
 
@@ -135,11 +123,9 @@ def main(args):
                 total_timesteps = len(timesteps)
                 one_eighth_index = total_timesteps // 15
                 seven_eighths_index = 14 * total_timesteps // 15
-
                 for idx, t in enumerate(timesteps):
                     latent_model_input = torch.cat([latents] * 2)
                     latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
-
                     if idx < one_eighth_index:
                         noise_pred = pipe.unet(
                             latent_model_input, t,
@@ -149,7 +135,6 @@ def main(args):
                         )[0]
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                         noise_pred = noise_pred_uncond + 7.0 * (noise_pred_text - noise_pred_uncond)
-
                     elif one_eighth_index <= idx < seven_eighths_index:
                         noise_pred = pipe.unet(
                             latent_model_input, t,
@@ -159,9 +144,7 @@ def main(args):
                         )[0]
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                         noise_pred = noise_pred_uncond + 9.0 * (noise_pred_text - noise_pred_uncond)
-
                         noise_pred_fact1 = view.FHigh(noise_pred)
-
                         noise_pred = pipe.unet(
                             latent_model_input, t,
                             encoder_hidden_states=prompt_embeds_fact2,
@@ -171,7 +154,6 @@ def main(args):
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                         noise_pred_fact2 = noise_pred_uncond + 7.0 * (noise_pred_text - noise_pred_uncond)
                         noise_pred_fact2 = view.FLow(noise_pred_fact2)
-
                         noise_pred = 1.0 * noise_pred_fact1 + 1.0 * noise_pred_fact2
                     else:
                         noise_pred = pipe.unet(
@@ -182,22 +164,17 @@ def main(args):
                         )[0]
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
                         noise_pred = noise_pred_uncond + 9.0 * (noise_pred_text - noise_pred_uncond)
-
                     latents = pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
-
                 # Decode the final latent representation into an image
                 image = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False, generator=None)[0]
                 do_denormalize = [True] * image.shape[0]
                 image = pipe.image_processor.postprocess(image, output_type='pil', do_denormalize=do_denormalize)[0]
-
             # Save the generated image
             output_path = os.path.join(args.output_dir, f"output_{i:02d}_prompt_{j:02d}.jpg")
             image.save(output_path)
             print(f"Image {i} for prompt {j} generated and saved at {output_path}.")
-
         end_time = time.time()
         print(f"Time taken for image {i}: {end_time - start_time:.2f} seconds")
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Stable Diffusion Generation Script")
