@@ -194,7 +194,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model_id",
         type=str,
-        default="sd-legacy/stable-diffusion-v1-5",
+        default="runwayml/stable-diffusion-v1-5",
         help="Model address"
     )
     parser.add_argument(
