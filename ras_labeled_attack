@@ -326,19 +326,19 @@ if __name__ == '__main__':
         "--model_depth_path",
         type=str,
         default="/data4/ywj/fenbianlvdaima/823newxiangfa/Annotators/depth_image",
-        help="Depth model address"
+        help="generating depth maps"
     )
     parser.add_argument(
         "--model_control_softedge_path",
         type=str,
         default="lllyasviel/control_v11p_sd15_softedge",
-        help="ControlNet softedge model address"
+        help="ControlNet softedge model address (softedge)"
     )
     parser.add_argument(
         "--model_control_depth_path",
         type=str,
         default="/data4/ywj/fenbianlvdaima/823newxiangfa/control_mdel/control_depth",
-        help="ControlNet depth model address"
+        help="ControlNet depth model address (depth)"
     )
     parser.add_argument(
         "--output_dir",
