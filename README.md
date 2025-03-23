@@ -55,4 +55,51 @@ Top: Labeled attacks using different high-resolution categories, including “li
 
 High-resolution images are generated using Donald Trump (left) and Elon Musk (right) as the source image, combined with various prominent figures such as Biden, Boris Johnson, Bill Gates, Mark Zuckerberg, and Steve Jobs. The middle column shows the corresponding downsampled low-resolution images.
 
+---
 
+## Setup
+
+Create and activate the conda environment and install the required packages:
+
+```bash
+conda create -n RA python==3.9
+conda activate RA
+pip install -r requirements.txt
+```
+
+---
+
+## Implement
+
+The experiments are divided into **labeled** and **unlabeled** attacks.
+
+- **Labeled Attack:**  
+  The high-resolution prompts correspond to classes from the ImageNet1000 dataset.
+
+- **Unlabeled Attack:**  
+  The high-resolution prompts are semantically broader (e.g., "a delicious food").
+
+### Commands
+
+- **RA Attack:**  
+  This script performs the RA attack (used for both labeled and unlabeled attacks) with inputs for high-resolution prompts and low-resolution prompts.
+  
+  ```bash
+  python ra_attack.py
+
+- **RAS Labeled Attack:**  
+  This script performs the RAS labeled attack with inputs for high-resolution prompts, low-resolution prompts, and a source image.
+  
+  ```bash
+  python ras_labeled_attack.py
+
+- **RAS Unlabeled Attack:**  
+  This script performs the RAS unlabeled attack with inputs for high-resolution prompts, low-resolution prompts, and a source image.
+  When the semantic gap between the high-resolution prompt and the low-resolution prompt is too large in the RAS labeled attack (e.g., when the low-resolution prompt word is "dog" and the high-resolution prompt word is "guitar", the semantic gap is too large), Using RAS labeled attacks is not effective and you need to use this script to generate images.
+  
+  ```bash
+  python ras_unlabeled_attack.py
+
+---
+
+### Results
