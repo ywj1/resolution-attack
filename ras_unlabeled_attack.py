@@ -281,19 +281,19 @@ if __name__ == '__main__':
     parser.add_argument(
         "--annotators_model_path",
         type=str,
-        default="/Annotators",
-        help="Annotators model address (for generating softedge)"
+        default="Annotators",
+        help="generating softedge maps"
     )
     parser.add_argument(
         "--model_control_softedge_path",
         type=str,
         default="lllyasviel/control_v11p_sd15_softedge",
-        help="ControlNet model address"
+        help="ControlNet model address (softedge)"
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="/output_ras_unlabeled_attack",
+        default="output_ras_unlabeled_attack",
         help="Directory to store generated images"
     )
     parser.add_argument(
