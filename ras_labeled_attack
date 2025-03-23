@@ -337,7 +337,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--model_control_depth_path",
         type=str,
-        default="/data4/ywj/fenbianlvdaima/823newxiangfa/control_mdel/control_depth",
+        default="lllyasviel/control_v11p_sd15_depth",
         help="ControlNet depth model address (depth)"
     )
     parser.add_argument(
