@@ -319,8 +319,8 @@ if __name__ == '__main__':
     parser.add_argument(
         "--annotators_model_path",
         type=str,
-        default="Annotators",
-        help="Annotators model address (for generating softedge)"
+        default="lllyasviel/Annotators",
+        help="generating softedge maps"
     )
     parser.add_argument(
         "--model_depth_path",
